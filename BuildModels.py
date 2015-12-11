@@ -33,23 +33,21 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.cluster import DBSCAN
 from sklearn import mixture
 
-
 GlobalNumModels=11
 GlobalNumClassModels=5
 GlobalNumClusteringModels=6
 GlobalNumClusters=10
 
 ChoseRegModel=8
-ChoseClassModel=1
+ChoseClassModel=4
 ChoseClusterModel=0
-GlobalNumFolds=2
-
+GlobalNumFolds=5
 
 GLNecessaryCombisNotDone=True
 GLLeaveOneOut=False
 #GLLeaveOneOut=True 
 GLCheckAllModels=False 
-GLCheckAllModels=True
+GLCheckAllModels= True
 GLModelDiagnostics=False 
 
 """
@@ -88,14 +86,20 @@ Clustering
 """
 
 def usage():
-    print "\t Usage: Learn.py -x <Training file name> \n\t Optional: \n\t\t -o <Output file name> \n\t\t -y <Test-file-name> \n\t\t -c <correlation-flag> 0: No correlaiton 1: IpStats correlation"
+    print "\t Usage: Learn.py -x <Training file name> -r <0:Regression 1:Classification 2: Clustering>\n\t Optional: \n\t\t -o <Output file name> \n\t\t -y <Test-file-name> \n\t\t -c <correlation-flag> 0: No correlaiton 1: IpStats correlation"
     sys.exit()
 
-def RemoveWhiteSpace(Input):
-    temp=re.sub('^\s*','',Input)
-    Output=re.sub('\s*$','',temp)
-    
-    return Output
+def MapColVals(df,colArray=[]):
+    for colName in colArray:
+        if( not(colName in df.columns) ):
+            print "\t Column: %s is not found in data-frame "
+            return
+        uniqVals = df[colName].unique()
+        matchVals = {}
+        for Idx,currMatch in enumerate(uniqVals):
+            matchVals[currMatch] = Idx
+        df[colName] = df[colName].map(matchVals)
+    return df
 
 def shuffle(df):
     #credits: Jerome Zhao : http://stackoverflow.com/questions/15772009/shuffling-permutation-a-dataframe-in-pandas
@@ -109,7 +113,7 @@ def Normalize(x,y,z):
     return (float(x)+float(y))/float(z)
     
 def IsNumber(s):
-# Credits: StackExchange: DanielGoldberg: http://stackoverflow.com/questions/354038/how-do-i-check-if-a-string-is-a-number-in-python
+    # Credits: StackExchange: DanielGoldberg: http://stackoverflow.com/questions/354038/how-do-i-check-if-a-string-is-a-number-in-python
     try:
         float(s)
         return True
@@ -271,24 +275,26 @@ def CrossValidation(IpStats,XParams,YParams,RegressionFlag,UseModel=0,NumFolds=G
         TmpX=IpStats[XParams]
         NecessaryCombisNotDone=False
     TmpY=IpStats[YParams]
-    print "\t Param: "+str(CurrCol)+"\t Rest of Columns: "+str(TmpX.columns)
+    print "\n\t Param: "+str(CurrCol)+"\t Rest of Columns: "+str(TmpX.columns)
     
     X=TmpX.as_matrix() 
     Y=TmpY.as_matrix() 
 
-    print "\t X shape: "+str(X.shape)+" Y shape "+str(Y.shape)+"\t Len(K-folds): "+str(len(kf))
-    print "\t X-columns: "+str(TmpX.columns)
     IpStatsLen=len(IpStats)
     kf = cross_validation.KFold(IpStatsLen, n_folds=NumFolds)
+    print "\t X-columns: "+str(TmpX.columns)
+    print "\t X shape: "+str(X.shape)+" Y shape "+str(Y.shape)+"\t Len(K-folds): "+str(len(kf))
     LearnModel= linear_model.LinearRegression()
     alpha=0.0001
  
+    if(CheckAllModels==False):
+        NumModels = 1
     for Idx in range(NumModels):
      Idx=NumModels-1
      AllModelsNotChecked=True
      for Idx in range(NumModels):
       if(CheckAllModels):
-         print "\t CurrentModel index "+str(Idx)
+         print "\n\t CurrentModel index "+str(Idx)+"\t NumModels "+str(NumModels)
       else:
          Idx=UseModel
       if(AllModelsNotChecked):
@@ -325,10 +331,17 @@ def CrossValidation(IpStats,XParams,YParams,RegressionFlag,UseModel=0,NumFolds=G
                 ExplainedVarianceR2=( LearnModel.score(TestX,TestY) )    # This is actually R2
                 MeanRelativeError=( np.mean(( abs(LearnModel.predict(TestX)- TestY)/TestY) ** 1) );  #MeanRelativeError=( np.mean(( (LearnModel.predict(TestX)- TestY)) ** 2) )
                 AbsError=0.0
-                for i in range(len(TestY)):
-                    Temp=abs(TestY[i][0]-OutputY[i])/TestY[i]
-                    AbsError+=Temp
-                AbsError/=len(TestY)
+                if RegressionFlag[0]:
+                    for i in range(len(TestY)):
+                        Temp=abs(TestY[i][0]-OutputY[i])/TestY[i]
+                        AbsError+=Temp
+                    AbsError/=len(TestY)
+                elif RegressionFlag[1]:
+                    AbsError = 0.0
+                    for i in range(len(TestY)):
+                        if( TestY[i][0] != OutputY[i]):
+                            AbsError +=1
+                    AbsError/=len(TestY)
                             
                 AvgRelativeErrorAcrossFolds+=(AbsError) #(MeanRelativeError) (MeanRelativeError)
                 AvgRelativeR2AcrossFolds+=(ExplainedVarianceR2)
@@ -388,7 +401,7 @@ def FindInDF(Prop1,Prop2,Prop1Val,Prop2Val,DF):
 def OverlapData(TestX,TrainX,XParams,TestValueTolerance=0.1):
         FilteredTestX=TestX
         for currCol in XParams:
-            if (~( (currCol in TestX.columns)  and (currCol in TrainX.columns) ):
+            if (~( (currCol in TestX.columns)  and (currCol in TrainX.columns) ) ):
                 print "\t currCol is not found in Test/Train data"
                 sys.exit()
 
@@ -423,7 +436,11 @@ def ErrorBinning(TempTestSet,AllParams):
 
             print "\t\t"+str(CurrCol)+"\t"+str(AvgBinnedTestData[CurrKey][CurrCol])+"\t"+str(VarBinnedTestData[CurrKey][CurrCol])+"\t"+str(BinnedTestData[CurrKey][CurrCol].min())+"\t"+str(BinnedTestData[CurrKey][CurrCol].max())
 
-def main(argv):
+def BuildModels(argv):
+    """
+    Testing how help works in python.
+    print "\t Usage: Learn.py -x <Training file name> \n\t Optional: \n\t\t -o <Output file name> \n\t\t -y <Test-file-name> \n\t\t -c <correlation-flag> 0: No correlaiton 1: IpStats correlation"
+    """
     InputFileName=''
     OutputFileName=''
     IpRegressionFlag=''
@@ -432,9 +449,10 @@ def main(argv):
     IpCheckAllModelsFlag=''
     TestFileName=''
     CorrelationFlag=''
+    TestResProvided = ''
     verbose=False 
     try:
-       opts, args = getopt.getopt(sys.argv[1:],"x:o:r:i:y:c:h:v",["training=","output=","regflag=","checkallflag=","test=","correlation","help","verbose"])
+       opts, args = getopt.getopt(sys.argv[1:],"x:o:r:i:y:c:t:h:v:",["training=","output=","regflag=","checkallflag=","test=","correlation","testy","help","verbose"])
     except getopt.GetoptError:
         #print str(err) # will print something like "option -a not recognized"
        usage()
@@ -445,33 +463,26 @@ def main(argv):
         if opt == '-h':
             usage()        
         elif opt in ("-x", "--training"):
-            InputFileName=RemoveWhiteSpace(arg)
-            print "\t Input file is "+str(InputFileName)+"\n";
+            InputFileName= arg.strip()
+            print "\t\t Input file is "+str(InputFileName)
         elif opt in ("-y", "--test"):
-            TestFileName=RemoveWhiteSpace(arg)
-            print "\t Test file is "+str(TestFileName)+"\n";    
+            TestFileName= arg.strip()
+            print "\t\t Test file is "+str(TestFileName)
         elif opt in ("-r", "--regflag"):
-            TempArg=int(RemoveWhiteSpace(arg))
+            TempArg=int( arg.strip())
             if(TempArg==0):
-                IpRegressionFlag=True
-                IpClassificationFlag=False
-                IpClusteringFlag=False
+                IpRegressionFlag=True; IpClassificationFlag=False;IpClusteringFlag=False
             elif(TempArg==1):
-                IpRegressionFlag=False
-                IpClassificationFlag=True
-                IpClusteringFlag=False
+                IpRegressionFlag=False; IpClassificationFlag=True;IpClusteringFlag=False
             elif(TempArg==2):
-                IpRegressionFlag=False
-                IpClassificationFlag=False
-                IpClusteringFlag=True    
+                IpRegressionFlag=False; IpClassificationFlag=False;IpClusteringFlag=True
+
             else:
                 print "\t ERROR: Illegal value provided for \"-r\" flag.     "
                 usage()    
             print "\t Regr: "+str(IpRegressionFlag)+"\t Class: "+str(IpClassificationFlag)+"\t Clustering: "+str(IpClusteringFlag)
-                
-            print "\t IpRegressionFlag is "+str(IpRegressionFlag)+"\n";
         elif opt in ("-i", "--checkallflag"):
-            TempArg=int(RemoveWhiteSpace(arg))
+            TempArg=int(arg.strip())
             if(TempArg>0):
                 IpCheckAllModelsFlag=True
             else:
@@ -479,10 +490,17 @@ def main(argv):
             
             print "\t IpCheckAllModelsFlag is "+str(IpCheckAllModelsFlag)+"\n";                                        
         elif opt in ("-c", "--correlation"):
-            CorrelationFlag=RemoveWhiteSpace(arg)
-            print "\t Correlation flag is "+str(CorrelationFlag)+"\n";            
+            CorrelationFlag= arg.strip()
+            print "\t Correlation flag is "+str(CorrelationFlag)+"\n";    
+        elif opt in ("-t", "--testy"):
+            Temp = int(arg.strip())
+            if(Temp>0):
+                TestResProvided = True
+            else:
+                TestResProvided = False
+            print "\t TestResProvided flag is "+str(TestResProvided)+"\n";                      
         elif opt in ("-o", "--output"):
-            OutputFileName=RemoveWhiteSpace(arg)
+            OutputFileName=arg.strip()
             print "\t Source file is "+str(OutputFileName)+"\n";            
         else:
                usage()
@@ -490,7 +508,7 @@ def main(argv):
     if(len(opts)==0):
         usage()
 
-    if(InputFileName==''):
+    if((InputFileName=='') or (TestResProvided=='')):
         usage()
     if(OutputFileName==''):
         OutputFileName='DefaultOutputFile.log'
@@ -499,26 +517,33 @@ def main(argv):
         CorrelationFlag=0
         print "\t\t INFO: Using default correlation flag: "+str(CorrelationFlag)    
     
-    IpStats=pd.read_csv(InputFileName,sep='\t',header=0)
+    print "\t "
+    IpStats=pd.read_csv(InputFileName,sep=',',header=0) #sep='\t' sep=','
+    IpStats = IpStats.fillna('0') #Not sure whether this can be used as a standard practice.
+    print "\t WARNING: NaN across training data is substituted with 0"
     IpStats=shuffle(IpStats);IpStats=shuffle(IpStats);IpStats=shuffle(IpStats)
-    print "\t IpStats.shape: "+str(IpStats.shape)
+    print "\t IpStats.shape: "+str(IpStats.shape)#+"\n\t columns "+str(IpStats.columns)
     
-    YParams= [] 
-    XYParams=[]
-    AllParams=[]    
+    YParams= ["Survived"] 
+    XYParams=["PassengerId","Survived","Pclass","Sex","Age","SibSp","Parch","Ticket","Fare","Cabin","Embarked"]
+    XParams=["PassengerId","Pclass","Sex","Age","SibSp","Parch","Ticket","Fare","Cabin","Embarked"]    
 
-    XParams= AllParams
+    XParams = ["Sex","PassengerId","Age","Fare","Ticket"]
+    AllParams= XParams
     
+    IpStats = MapColVals(IpStats,['Sex',"Ticket","Cabin","Embarked"])
+    for currParam in IpStats.columns:
+        print "\t Param: %s type: %s "%(currParam,type(IpStats[currParam][0]))
+    #sys.exit()
+
     for CurrParam in YParams:
         XYParams.append(CurrParam)
     for CurrParam in XParams:
         XYParams.append(CurrParam)
-    XYParams.append('Frequency')
-    print "\t len(XParams): "+str(len(XParams))
+
+    print "\t len(XParams): "+str(len(XParams))+"\t YParams.shape: "+str(len(YParams))
     TempX=IpStats[XParams]
 
-    print "\t YParams.shape: "+str(len(YParams))
-    #TempTrainSet=IpStats;TempTrainSet=ProcessRelativeEXECTIME(TempTrainSet); RegModels(TempTrainSet,XParams,YParams,UseModel=0,NumFolds=GlobalNumFolds,NumModels=GlobalNumModels);sys.exit()
     ChoseModel=''
     if(IpRegressionFlag):
        ChoseModel=ChoseRegModel
@@ -527,8 +552,9 @@ def main(argv):
     elif(IpClusteringFlag):
        ChoseModel=ChoseClusterModel
 
-    CrossValidation(IpStats,XParams,YParams,RegressionFlag=[IpRegressionFlag,IpClassificationFlag,IpClusteringFlag],UseModel=ChoseModel,NumFolds=GlobalNumFolds,NumModels=GlobalNumModels);#sys.exit()
-    
+    CrossValidation(IpStats,XParams,YParams,RegressionFlag=[IpRegressionFlag,IpClassificationFlag,IpClusteringFlag],UseModel=ChoseModel,NumFolds=GlobalNumFolds,NumModels=GlobalNumModels);
+    sys.exit()
+
     if(CorrelationFlag==1):
         CorrOutput=IpStats.corr(method='pearson')
         InputCorrelationFileName='CorrelationInput'+str(OutputFileName)
@@ -538,35 +564,37 @@ def main(argv):
         sys.exit()
 
     if(TestFileName!=''):
-        print "\t Opening test file name: "+str(TestFileName)
-        TestStats=pd.read_csv(TestFileName,sep='\t',header=0)
+        print "\n\t Opening test file name: "+str(TestFileName)
+        TestStats=pd.read_csv(TestFileName,sep=',',header=0) #sep='\t' sep=','
+        TestStats = TestStats.fillna(0)
+        TestStats = MapColVals(TestStats,['Sex',"Ticket","Cabin","Embarked"])
+        print "\t WARNING: NaN across test data is substituted with 0"
 
         if(CorrelationFlag==2):
            CorrOutput=IpStats.corr(method='pearson')
            InputCorrelationFileName='CorrelationInput'+str(OutputFileName)
            CorrOutput.to_csv(InputCorrelationFileName,sep='\t')        
 
-        print "\t TestStats-shape: "+str(TestStats.shape)
-        
-        TestX=TestStats#[XYParams]
-        print "\t TestX-shape "+str(TestX.shape)
-        TempTestX = TestX;
+        TestX=TestStats[XParams]
+        TempTestSet = TestStats 
         #FilteredTestX=OverlapData(TestX,TrainX,XParams,TestValueTolerance=0.1);        TempTestSet=FilteredTestX
 
+        print "\t Test-shape "+str(TempTestSet.shape)+"\t Test columns "+str(TempTestSet.columns);
         if(IpCheckAllModelsFlag):
             XParams=AllParams    
             
         TestX=(TempTestSet[XParams]).as_matrix()
-        TestY=(TempTestSet[YParams]).as_matrix()
+        if TestResProvided:
+            TestY=(TempTestSet[YParams]).as_matrix()
         
-        TrainX=(TempTrainSet[XParams]).as_matrix()
-        TrainY=(TempTrainSet[YParams]).as_matrix()
+        TrainX=(IpStats[XParams]).as_matrix()
+        TrainY=(IpStats[YParams]).as_matrix()
 
-        print "\t Test shape- x "+str(TestX.shape)+" y "+str(TestY.shape)
+        print "\t Test shape- x "+str(TestX.shape)#+" y "+str(TestY.shape)
         print "\t Train shape-x "+str(TrainX.shape)+" y "+str(TrainY.shape)
         print "\t XParams: "+str(XParams)
         print "\t YParams: "+str(YParams)
-
+        #sys.exit()
         VarianceScoreCollection={}
         ManualRelativeErrorCollection={}
         NumModelsToUse=-1
@@ -590,34 +618,57 @@ def main(argv):
             OutputY=LearnModel.predict(TestX)
             AbsError=[]
             ManualMeanRelativeError=0.0
-            for i in range(len(OutputY)):
-                Temp=float(abs(OutputY[i]-TestY[i][0])/TestY[i][0])
-                ManualMeanRelativeError+=Temp
-                AbsError.append(Temp)
-            ManualMeanRelativeError/=len(OutputY)
-            MeanRelativeError=( np.mean(( abs(OutputY- TestY[0])/TestY[0]) ** 1) )
-            VarianceScore=LearnModel.score(TestX,TestY)
-            print "\t MeanRelativeError for the test set is: "+str(MeanRelativeError)+" Variance-score: "+str(VarianceScore)+" ManualMeanRelativeError "+str(ManualMeanRelativeError)
-            TestOutputComparison=open('TestOutputComparison.dat','w')
-            TestVecLen=len(TestX[0])
-            TempTestSet['AbsError']=AbsError
-            for i in range(len(OutputY)):
-                TestOutputComparison.write("\t"+str(i)+"\t"+str(round(OutputY[i],6))+"\t"+str(round(TestY[i][0],6))+"\t"+str(round(AbsError[i],6)))
-                #NecessaryRow=FindInDF(XParams[TestVecLen-1],XParams[TestVecLen-2],TestX[i][TestVecLen-1],TestX[i][TestVecLen-2],TempTestSet)
-                #for CurrParam in NecessaryRow:
-                    #TestOutputComparison.write("\t"+str(CurrParam))
-            TestOutputComparison.close()    
-        
-            VarianceScoreCollection[Method]=VarianceScore
-            ManualRelativeErrorCollection[Method]=ManualMeanRelativeError
-            if hasattr(LearnModel,feature_importances_):
-                print "\t Feature importance: "+str(LearnModel.feature_importances_);
-                #print "\t Feature importance: "+str(LearnModel.coef_); sys.exit()
+            if(TestResProvided):
+                if(IpRegressionFlag):
+                    for i in range(len(OutputY)):
+                        Temp=float(abs(OutputY[i]-TestY[i][0])/TestY[i][0])
+                        ManualMeanRelativeError+=Temp
+                        AbsError.append(Temp)
+                elif(IpClassificationFlag):
+                    for i in range(len(OutputY)):
+                        Temp = False
+                        if (OutputY[i] == TestY[i][0]):
+                            Temp = True
+                        else:
+                            ManualMeanRelativeError+= 1
+                        AbsError.append(Temp)
 
-            if(ModelDiagnostics):
-                ErrorBinning(TempTestSet,AllParams)
-            print "\t MeanRelativeError for the test set is: "+str(MeanRelativeError)+" Variance-score: "+str(VarianceScore)+" ManualMeanRelativeError "+str(ManualMeanRelativeError); 
+                ManualMeanRelativeError/=len(OutputY)
+                MeanRelativeError=( np.mean(( abs(OutputY- TestY[0])/TestY[0]) ** 1) )
+                VarianceScore=LearnModel.score(TestX,TestY)
+                print "\t MeanRelativeError for the test set is: "+str(MeanRelativeError)+" Variance-score: "+str(VarianceScore)+" ManualMeanRelativeError "+str(ManualMeanRelativeError)
+
+                TestOutputComparison=open('TestOutputComparison.dat','w')
+                TestVecLen=len(TestX[0])
+                TempTestSet['AbsError']=AbsError
+                for i in range(len(OutputY)):
+                    TestOutputComparison.write("\n\t"+str(i)+"\t"+str(round(OutputY[i],6))+"\t"+str(round(TestY[i][0],6))+"\t"+str(round(AbsError[i],6)))
+                    #NecessaryRow=FindInDF(XParams[TestVecLen-1],XParams[TestVecLen-2],TestX[i][TestVecLen-1],TestX[i][TestVecLen-2],TempTestSet)
+                    #for CurrParam in NecessaryRow:
+                        #TestOutputComparison.write("\t"+str(CurrParam))
+                TestOutputComparison.close()    
         
+                VarianceScoreCollection[Method]=VarianceScore
+                ManualRelativeErrorCollection[Method]=ManualMeanRelativeError
+                if hasattr(LearnModel,feature_importances_):
+                    print "\t Feature importance: "+str(LearnModel.feature_importances_);
+                    #print "\t Feature importance: "+str(LearnModel.coef_); sys.exit()
+
+                if(ModelDiagnostics):
+                    ErrorBinning(TempTestSet,AllParams)
+                print "\t MeanRelativeError for the test set is: "+str(MeanRelativeError)+" Variance-score: "+str(VarianceScore)+" ManualMeanRelativeError "+str(ManualMeanRelativeError); 
+            else:
+                TestOutputComparison=open('TestOutputComparison.dat','w')
+                TestVecLen=len(TestX[0])
+                if IpRegressionFlag:
+                    for i in range(len(OutputY)):
+                        TestOutputComparison.write("\n\t"+str(i)+"\t"+str(round(OutputY[i],6)))
+                elif IpClassificationFlag:
+                    for i in range(len(OutputY)):
+                        #TestOutputComparison.write("\n\t"+str(i)+"\t"+str(OutputY[i]))
+                        TestOutputComparison.write("\n"+str(TempTestSet["PassengerId"][i])+","+str(OutputY[i]))
+                TestOutputComparison.close()                    
+                sys.exit()
         print "\t Format: <Method> <Variance-score> <ManualRelativeError> "    
         for CurrMethod in  VarianceScoreCollection:
             if(CurrMethod in ManualRelativeErrorCollection):
@@ -626,5 +677,5 @@ def main(argv):
     print "\n\n"     
           
 if __name__ == "__main__":
-   main(sys.argv[1:])
+   BuildModels(sys.argv[1:])
 
